@@ -1,0 +1,1376 @@
+---
+title: "DH"
+output: html_document
+---
+
+```{r setup, include=FALSE, echo=FALSE, cache=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/Volumes/netscratch/irg/grp_hancock/Celia/DH_fullPanel/")
+#setwd("/Volumes/netscratch/irg/grp_hancock/Celia/DH_fullPanel/")
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(stringr)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(pheatmap)
+library(ggpubr)
+library(reshape2)
+library(factoextra)
+library(data.table)
+library(FactoMineR)
+
+dh_col <- "#595959"
+fogo_col <- "#FFA405"
+sa_col <- "#0075DC"
+S_Fig= "#B0E0E6"
+S_Cova= "#00BFFF"
+S_Pico= "#1E90FF"
+S_Espong= "#0000FF"
+F_MonteVelha= "#FF7F50"
+F_Lava= "#FF8C00"
+F_Inferno= '#FF4500'
+
+who = read.table("./DH_final_cleanSet.txt")
+colnames(who) <- c("SeqID", "ID")
+who$id2 <- who$ID
+who <- who %>% separate(id2, c('Family', 'Number'))
+
+families = read.table("familiesPerIsland.txt", header = T)
+
+parents = read.table("parentsID.txt")
+```
+
+
+## Cleaning up
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+hets = read.table("DH_SNPs_Final.cleanInd.parentalSitesOnly.het.het", header = TRUE)
+
+parents = read.table("parentsID.txt")
+
+hets$who <- ifelse(hets$INDV %in% parents$V1, "parent", "baby")
+
+hets$hets <- hets$N_SITES - hets$O.HOM.
+
+hets_plot = ggplot(hets, aes(hets, fill = who)) + geom_histogram() +
+  theme_bw() + xlab("Number of heterozygotic sites") + 
+  geom_vline(xintercept = quantile(hets$hets, 0.85)) +
+  theme(legend.position = "none")
+
+
+print("Coverage stats:")
+coverage = read.table("coverage.idepth", header = TRUE)
+
+summary(coverage$MEAN_DEPTH)
+
+
+```
+
+
+## PCA on the nat pops
+
+Each dot represents one ind from the nat pops. Orange Fogo, blue Santo Antão. The larger dots show the parents used to construct the intercross pop.
+
+```{r, echo=FALSE}
+############ diversity in parents
+pca = read.table("../GATK/CapeVerde_SNPs_Indels_Final_segregating.eigenvec")
+paps = c("6911", "2876_AL", "2876_AU", "20682", "2876_AH", "21228", "21226", "21225")
+
+ggplot() + geom_point(data=pca, aes(x=V5, y=V6, colour=V2), alpha = 0.3, shape = 1) +
+  #geom_text(data = pca, aes(x=V5, y=V6, colour=V2, label = V1)) +
+  #geom_text(data = pca[pca$V1 %in% paps,], aes(x=V5, y=V6, colour=V2, label = V1), size = 4, shape =19) + 
+  scale_color_manual(values = c(fogo_col, sa_col), name = "Island") +
+  theme_bw() + theme(legend.position = "none") +
+  xlab("PC1 (57.5%)") + ylab("PC2 (34.4%)")
+
+
+png("PCA_natPop.png", width = 9, height = 6, units = "cm", res = 360)
+ggplot() + geom_point(data=pca, aes(x=V5, y=V6, colour=V2), alpha = 0.3, shape = 1) +
+  geom_point(data = pca[pca$V1 %in% paps,], aes(x=V5, y=V6, colour=V2), size = 4, shape =19) + 
+  scale_color_manual(values = c(fogo_col, sa_col), name = "Island") +
+  theme_bw() + theme(legend.position = "none") +
+  xlab("PC1 (57.5%)") + ylab("PC2 (34.4%)")
+dev.off()
+
+
+ggplot() + geom_point(data=pca, aes(x=V6, y=V7, colour=V2), alpha = 0.3, shape = 1) +
+  geom_point(data = pca[pca$V1 %in% paps,], aes(x=V5, y=V6, colour=V2), size = 4, shape =19) + 
+  scale_color_manual(values = c(fogo_col, sa_col), name = "Island") +
+  theme_bw() + 
+  xlab("PC2") + ylab("PC3")
+
+#pca %>% count(Family)
+#unique(pca$Family) ## 42 families
+
+```
+
+
+
+## PCA on the babies
+
+Each dot represents one ind from the intercross pop. Orange completly Fogo families, blue completly Santo Antão families, gray interislands families. The number corresponds to the family number. 
+
+
+```{r, echo=FALSE}
+pca = read.table("DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses.eigenvec")
+
+pca <- merge(pca, who[,1:3], by.x = "V1", by.y = "SeqID")
+pca <- merge(pca, families)
+
+pca_plot = ggplot(pca, aes(x = V3, y = V4, colour = Island, label = Family)) + geom_text() +
+  theme_bw() + #stat_ellipse(aes(group = Family)) +
+  scale_colour_manual(values = c(dh_col, fogo_col, sa_col)) +
+  xlab("PC1 (26.84%)") + ylab("PC2 (21.54%)") +
+  theme(legend.position = "none")
+
+table(pca$Island)
+
+
+```
+
+Number of individuals per family group.
+
+### How many inds per family?
+
+Number of inds per family and its distribution overall.
+
+```{r, echo=FALSE, warning=FALSE}
+fami_plot = ggplot() + geom_bar(data = pca, aes(x=Family, y=(..count..))) + 
+  xlab("Family") + ylab("Number of DH lines") + theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+freq_plot = ggplot() + geom_histogram(data = as.data.frame(table(pca$Family)), aes(Freq), bins = 10) + theme_bw()
+
+summary(as.data.frame(table(pca$Family))$Freq)
+
+
+```
+
+## Parental segments per DH line
+
+Each horizontal line represents one DH line. Coloured segments represent parental genomic segments. Shades of orange for segments coming from Fogo parents, blue shades for Santo Antão parents. X-axis shows genomic positions for the 5 chrs. 
+
+```{r, echo=FALSE}
+############# plot mosaic.txt
+mosaic = read.table("./DH_LINES/mosaic.txt", header = T)
+
+clean = read.table("./DH_final_cleanSet.txt")
+
+mosaic$magic <- gsub(mosaic$magic, pattern = ".txt", replacement = "")
+mosaic = mosaic[mosaic$magic %in% clean$V1,]
+
+mosaic$chr <- as.character(mosaic$chr)
+# all chromosme  numbering is wrong; change
+mosaic$chr <- gsub(pattern = "6", replacement = "1", mosaic$chr)
+#mosaic$chr <- gsub("5", "1", mosaic$chr)
+#mosaic$chr <- gsub("4", "5", mosaic$chr)
+#mosaic$chr <- gsub("3", "4", mosaic$chr)
+#mosaic$chr <- gsub("2", "3", mosaic$chr)
+#mosaic$chr <- gsub("toReplace", "2", mosaic$chr)
+
+bp <- mosaic %>% 
+  
+  # Compute chromosome size
+  group_by(chr) %>% 
+  summarise(chr_len=max(to.bp)) %>% 
+  
+  # Calculate cumulative position of each chromosome
+  mutate(tot=cumsum(chr_len)-chr_len) %>%
+  
+  # Add this info to the initial dataset
+  left_join(mosaic, ., by=c("chr"="chr")) %>%
+  
+  # Add a cumulative position of each SNP
+  arrange(chr, to.bp) %>%
+  mutate(BPcum=to.bp+tot) 
+
+bp$chr <- gsub(pattern = "5", replacement = "Chr5", x = bp$chr)
+
+
+mosaic_plot = ggplot(bp, aes(x = from.bp, xend = to.bp, y = magic, yend = magic, colour = acc)) + geom_segment() +
+  facet_grid(.~chr, scales = "free_x") +
+  theme_bw() + theme(axis.text = element_blank(), axis.ticks = element_blank(), legend.position = "none") +
+  xlab("Chromosome position") + ylab("DH line") +
+  scale_color_manual(values = c(S_Cova, F_MonteVelha, F_Inferno, F_Lava, fogo_col, S_Fig, S_Espong, S_Pico), name = "Parents")
+
+
+
+```
+
+### How much does any parent contribute to the final pop?
+
+Proportion of genomic segments (y-axis) per parent (x-axis).
+
+``` {r, echo=FALSE}
+
+prop = mosaic %>% group_by(acc) %>%
+  summarise(n = n()) %>%
+  mutate(freq = n / sum(n))
+
+pare_plot = ggplot(data = as.data.frame(prop), aes(x = acc, y = as.numeric(freq))) + geom_col() + 
+  xlab("Parents") + ylab("Proportion") + theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#summary(as.data.frame(table(mosaic$acc)/nrow(mosaic)))
+
+#table(mosaic$acc)/nrow(mosaic)
+
+```
+
+
+
+
+### How much does any parent contribute to the final pop per chr?
+
+Proportion of genomic segments (y-axis) per parent (x-axis) per chr.
+
+```{r, echo=FALSE}
+# proportion of parents/chr
+contr_plot = ggplot() + geom_bar(data = mosaic, aes(x=acc, y=(..count..)/sum(..count..))) + theme_bw() +
+  facet_grid(.~chr) + xlab("Parents") + ylab("Proportion") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+### What's the distribution of segment lengths?
+
+```{r, echo=FALSE, warning=FALSE}
+seg_plot = ggplot(mosaic, aes(len.bp)) + geom_histogram() + theme_bw() +
+  xlab("Segment length (bp)")
+
+#mosaic[mosaic$len.bp > 20000000,]
+summary(mosaic$len.bp)
+
+```
+
+### How many segments per DH?
+
+Distribution of parental segment number per DH line. 
+
+```{r, echo=FALSE, warning=FALSE}
+
+seg2_plot = ggplot(as.data.frame(table(mosaic$magic)), aes(x=Freq)) + geom_histogram() + theme_bw() +
+  xlab("Number of segments per DH line")
+
+summary(as.data.frame(table(mosaic$magic))$Freq)
+```
+
+
+### Diversity
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+pi_babies = read.table("pi_babies_1000.windowed.pi", header = TRUE)
+pi_babies$Pop <- "DH"
+
+summary(na.omit(pi_babies$PI))
+
+pi_parents = read.table("pi_parents_1000.windowed.pi", header = TRUE)
+pi_parents$Pop <- "Parents"
+
+summary(na.omit(pi_parents$PI))
+
+pi = rbind(pi_babies, pi_parents)
+
+#ggplot(pi, aes(x = BIN_START, y = PI, colour = Pop)) + geom_line(alpha = 0.7) +
+  #facet_grid(.~ CHROM, scales = "free_x") +
+  #theme_bw()
+
+```
+
+
+## Segregation distortion
+
+For each marker, I tested using a Chi-sqaure the differenece between expected and observed. Since expected depends on who the parents are, this was done per family. First, for each family, I took the parental genotypes for each marker as the expected: all four 0s (matches to the ref) will expect all 0s; all four 1s will expect all 1s; two 1s and two 0s will expect 50% 1s and 50% 0s and so on.... This follows Mendel for single locus.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, eval=FALSE}
+
+#freq = read.table("DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses_interIslandsOnly.frq", header = TRUE)
+
+#freq[c('ALLELE1', 'FREQ1')] <- str_split_fixed(freq$ALLELE1.FREQ1, ':', 2)
+#freq[c('ALLELE2', 'FREQ2')] <- str_split_fixed(freq$ALLELE2.FREQ2, ':', 2)
+#freq$FREQ1 <- as.numeric(freq$FREQ1)
+#freq$FREQ2 <- as.numeric(freq$FREQ2)
+
+parentsalleles = read.table("parentsAlleles.txt", header = TRUE, check.names = FALSE)
+parentsalleles[,5:12] <- lapply(parentsalleles[,5:12], function(f) as.numeric(levels(f))[f])
+
+
+gp = read.table("grandparentsFamily.txt", header = TRUE)
+
+babies = read.table("DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses_interIslandsOnly.GT.FORMAT", header = TRUE, check.names = FALSE)
+
+babies = babies %>% 
+  mutate_all(funs(str_replace(., "1/1", "1")))
+
+babies = babies %>% 
+  mutate_all(funs(str_replace(., "0/0", "0")))
+
+babies = babies %>% 
+  mutate_all(funs(str_replace(., "./.", ".")))
+
+babies[babies == "."] <- NA
+babies = subset(babies, select = -c(`4200_H`)) ## has 0 coverage 
+
+
+########!!!!!! family 49, 27, 29, 48 disappeared in babies
+famis <- c(77, 26, 70, 21, 2, 75, 36, 64, 31, 43, 59, 60, 72, 42, 63, 73, 1, 35, 51, 38, 74, 37, 56, 23, 55, 53, 57, 25, 6, 13, 19, 44, 67, 8, 68, 15, 34, 76)
+
+dff <- data.frame()
+for (familyofinterest in famis) {
+
+#familyofinterest = 26 #### change here!!!!!!!!
+
+gps = as.character(unlist(unique(gp[gp$Family == familyofinterest, 4:7])))
+gps_alleles = parentsalleles[, colnames(parentsalleles) %in% gps]
+gps_alleles = cbind(parentsalleles[,1:4], gps_alleles)
+#gps_alleles$sum = rowSums(gps_alleles[, 5:8])
+#gps_alleles$freq = ifelse(gps_alleles$sum == 0, 0, 
+                          #ifelse(gps_alleles$sum == 1 , 0.25, 
+                                 #ifelse(gps_alleles$sum == 2, 0.5,
+                                        #ifelse(gps_alleles$sum == 3, 0.75, 1))))
+
+
+bb = as.character(gp[gp$Family == familyofinterest,1])
+bbs_alleles = babies[, colnames(babies) %in% bb]
+bbs_alleles = cbind(babies[,1:2], bbs_alleles)
+bbs_alleles = na.omit(bbs_alleles)
+bbs_alleles[,3:ncol(bbs_alleles)] <- sapply(bbs_alleles[,3:ncol(bbs_alleles)],as.numeric)
+#bbs_alleles$freq <- rowSums(bbs_alleles[, 3:ncol(bbs_alleles)]) / (ncol(bbs_alleles)-2)
+
+final = merge(gps_alleles, bbs_alleles, by = c("CHROM", "POS"))
+final = na.omit(final)
+
+df <- data.frame()
+for (i in 1:nrow(final)) {
+  
+m <- cbind(table(as.numeric(final[i, 5:8])), table(as.numeric(final[i, 9:ncol(final)])))
+pp <- chisq.test(m)$p.value
+print(paste(i, chisq.test(m)$p.value))
+
+#pt <- sum(as.numeric(final[i, 5:8])) / 4
+#bs <- sum(as.numeric(final[i, 9:ncol(final)])) / (ncol(final)-8)
+
+
+#df <- rbind(df, cbind(pp, i, familyofinterest, pt, bs, final[, c("CHROM", "POS")]))
+
+df <- rbind(df, cbind(i, chisq.test(m)$p.value, familyofinterest))
+}
+colnames(df) <- c("index", "p.value", "family")
+dff <- rbind(dff, df)
+
+}
+
+dff[dff$p.value < 0.05,]
+
+library(dplyr)
+dff[dff$p.value < 0.05,] %>% count(family)
+
+
+fam26 <- df
+fam26$fam <- "26"
+fam77 <- df
+fam77$fam <- "77"
+fam70 <- df
+fam70$fam <- "70"
+fam21 <- df
+fam21$fam <- "21"
+fam2 <- df
+fam2$fam <- "2"
+fam75 <- df
+fam75$fam <- "75"
+fam36 <- df
+fam36$fam <- "36"
+fam64 <- df
+fam64$fam <- "64"
+fam31 <- df
+fam31$fam <- "31"
+fam43 <- df
+fam43$fam <- "43"
+fam59 <- df
+fam59$fam <- "59"
+fam60 <- df
+fam60$fam <- "60"
+fam72 <- df
+fam72$fam <- "72"
+fam42 <- df
+fam42$fam <- "42"
+fam63 <- df
+fam63$fam <- "63"
+fam73 <- df
+fam73$fam <- "73"
+fam1 <- df
+fam1$fam <- "1"
+fam35 <- df
+fam35$fam <- "35"
+fam51 <- df
+fam51$fam <- "51"
+fam38 <- df
+fam38$fam <- "38"
+fam74 <- df
+fam74$fam <- "74"
+fam37 <- df
+fam37$fam <- "37"
+fam56 <- df
+fam56$fam <- "56"
+fam23 <- df
+fam23$fam <- "23"
+fam55 <- df
+fam55$fam <- "55"
+fam53 <- df
+fam53$fam <- "53"
+fam57 <- df
+fam57$fam <- "57"
+fam25 <- df
+fam25$fam <- "25"
+fam6 <- df
+fam6$fam <- "6"
+fam13 <- df
+fam13$fam <- "13"
+fam19 <- df
+fam19$fam <- "19"
+fam44 <- df
+fam44$fam <- "44"
+fam67 <- df
+fam67$fam <- "67"
+fam8 <- df
+fam8$fam <- "8"
+fam68 <- df
+fam68$fam <- "68"
+fam15 <- df
+fam15$fam <- "15"
+fam34 <- df
+fam34$fam <- "34"
+fam76 <- df
+fam76$fam <- "76"
+
+df[df$p.value < 0.05,]
+final
+
+final$distorted <- ifelse(rownames(final) %in% dff[dff$p.value < 0.05 & dff$family == 26, "index"], "distorted", "not")
+
+out <- final %>% filter(rownames(final) %in% dff[dff$p.value < 0.05 & dff$family == 26, "index"])
+
+out21 <- out
+
+ggplot(out, aes(x = POS, y = CHROM)) + geom_jitter(height = 0.2, width = 0)
+
+ggplot() + 
+  geom_jitter(data = final[final$distorted == "not",], aes(x = POS, y = CHROM, colour = distorted), height = 0.2, width = 0) +
+  geom_jitter(data = final[final$distorted == "distorted",], aes(x = POS, y = CHROM, colour = distorted), height = 0.2, width = 0) +
+  scale_color_manual(values = c("black", "grey90")) +
+  theme_bw()
+
+
+
+
+```
+
+No marker in any family has a p-value < 0.05. However, propably there aren't enough babies per family for the test to have any power. 
+
+
+## LD 
+
+### In the DH pop
+
+Correlation between markers, post imputation (see MAGIC software for imputation).
+
+```{r, echo=FALSE}
+
+chr_ld = read.table("./DH_LINES/chr6.imputed.txt", header = T)
+res <- cor(chr_ld[, -1])
+pheatmap(res, cluster_rows = F, cluster_cols = F, show_colnames = F, show_rownames = F, legend_breaks = c(-1, 1), legend_labels = c(-1,1), breaks=seq(-1, 1, length.out=101), main = "Chr1")
+
+chr_ld = read.table("./DH_LINES/chr2.imputed.txt", header = T)
+res <- cor(chr_ld[, -1])
+pheatmap(res, cluster_rows = F, cluster_cols = F, show_colnames = F, show_rownames = F, legend_breaks = c(-1, 1), legend_labels = c(-1,1), breaks=seq(-1, 1, length.out=101), main = "Chr2")
+
+chr_ld = read.table("./DH_LINES/chr3.imputed.txt", header = T)
+res <- cor(chr_ld[, -1])
+pheatmap(res, cluster_rows = F, cluster_cols = F, show_colnames = F, show_rownames = F, legend_breaks = c(-1, 1), legend_labels = c(-1,1), breaks=seq(-1, 1, length.out=101), main = "Chr3")
+
+chr_ld = read.table("./DH_LINES/chr4.imputed.txt", header = T)
+res <- cor(chr_ld[, -1])
+pheatmap(res, cluster_rows = F, cluster_cols = F, show_colnames = F, show_rownames = F, legend_breaks = c(-1, 1), legend_labels = c(-1,1), breaks=seq(-1, 1, length.out=101), main = "Chr4")
+
+chr_ld = read.table("./DH_LINES/chr5.imputed.txt", header = T)
+res <- cor(chr_ld[, -1])
+pheatmap(res, cluster_rows = F, cluster_cols = F, show_colnames = F, show_rownames = F, legend_breaks = c(-1, 1), legend_labels = c(-1,1), breaks=seq(-1, 1, length.out=101), main = "Chr5")
+
+
+
+```
+
+
+### In the Santo Antão nat pop
+
+LD between all inds in the nat pop, all markers, with no missing data (from plink).
+
+```{r, echo=FALSE, eval=FALSE}
+
+natpop = read.table("../GATK/SA/SA_SNPs_Indels_Final_segregating_maf_noNA.raw", header = T)
+res <- cor(natpop[, grepl("X1.", names(natpop))])
+pheatmap(res, cluster_rows = F, cluster_cols = F, show_colnames = F, show_rownames = F, legend_breaks = c(-1, 1), legend_labels = c(-1,1), breaks=seq(-1, 1, length.out=101), main = "Chr1")
+
+res <- cor(natpop[, grepl("X2.", names(natpop))])
+pheatmap(res, cluster_rows = F, cluster_cols = F, show_colnames = F, show_rownames = F, legend_breaks = c(-1, 1), legend_labels = c(-1,1), breaks=seq(-1, 1, length.out=101), main = "Chr2")
+
+res <- cor(natpop[, grepl("X3.", names(natpop))])
+pheatmap(res, cluster_rows = F, cluster_cols = F, show_colnames = F, show_rownames = F, legend_breaks = c(-1, 1), legend_labels = c(-1,1), breaks=seq(-1, 1, length.out=101), main = "Chr3")
+
+res <- cor(natpop[, grepl("X4.", names(natpop))])
+pheatmap(res, cluster_rows = F, cluster_cols = F, show_colnames = F, show_rownames = F, legend_breaks = c(-1, 1), legend_labels = c(-1,1), breaks=seq(-1, 1, length.out=101), main = "Chr4")
+
+res <- cor(natpop[, grepl("X5.", names(natpop))])
+pheatmap(res, cluster_rows = F, cluster_cols = F, show_colnames = F, show_rownames = F, legend_breaks = c(-1, 1), legend_labels = c(-1,1), breaks=seq(-1, 1, length.out=101), main = "Chr5")
+
+```
+
+
+### In the Fogo nat pop
+
+LD between all inds in the nat pop, all markers, with no missing data (from plink).
+
+```{r,echo=FALSE, eval=FALSE}
+
+natpop = read.table("../GATK/Fogo/Fogo_SNPs_Indels_Final_segregating_maf_noNA.raw", header = T)
+res <- cor(natpop[, grepl("X1.", names(natpop))])
+pheatmap(res, cluster_rows = F, cluster_cols = F, show_colnames = F, show_rownames = F, legend_breaks = c(-1, 1), legend_labels = c(-1,1), breaks=seq(-1, 1, length.out=101), main = "Chr1")
+
+res <- cor(natpop[, grepl("X2.", names(natpop))])
+pheatmap(res, cluster_rows = F, cluster_cols = F, show_colnames = F, show_rownames = F, legend_breaks = c(-1, 1), legend_labels = c(-1,1), breaks=seq(-1, 1, length.out=101), main = "Chr2")
+
+res <- cor(natpop[, grepl("X3.", names(natpop))])
+pheatmap(res, cluster_rows = F, cluster_cols = F, show_colnames = F, show_rownames = F, legend_breaks = c(-1, 1), legend_labels = c(-1,1), breaks=seq(-1, 1, length.out=101), main = "Chr3")
+
+res <- cor(natpop[, grepl("X4.", names(natpop))])
+pheatmap(res, cluster_rows = F, cluster_cols = F, show_colnames = F, show_rownames = F, legend_breaks = c(-1, 1), legend_labels = c(-1,1), breaks=seq(-1, 1, length.out=101), main = "Chr4")
+
+res <- cor(natpop[, grepl("X5.", names(natpop))])
+pheatmap(res, cluster_rows = F, cluster_cols = F, show_colnames = F, show_rownames = F, legend_breaks = c(-1, 1), legend_labels = c(-1,1), breaks=seq(-1, 1, length.out=101), main = "Chr5")
+
+
+```
+
+
+### LD decay
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+library(stringr)
+ld_fogo = fread("../GATK/Fogo/LDdecay/Fogo_SNPs_Indels_Final_segregating_R2_10K.ld", header = TRUE)
+ld_sa = fread("../GATK/SA/LDdecay/SA_SNPs_Indels_Final_segregating_R2_10K.ld", header = TRUE)
+ld_dh = fread("LD.ld", header = TRUE)
+
+ld_fogo$pop <- "Fogo"
+ld_sa$pop <- "SA"
+ld_dh$pop <- "DH"
+
+ld = rbind(ld_fogo, ld_sa, ld_dh)
+ld$same <- ifelse(ld$CHR_A == ld$CHR_B, "same", "diff")
+ld = ld[ld$same == "same",]
+ld$dist <- ld$BP_B - ld$BP_A
+
+ld$distc <- cut(ld$dist,breaks=seq(from=min(ld$dist)-1,to=max(ld$dist)+1,by=500))
+ld1 <- ld %>% group_by(pop, distc) %>% summarise(mean=mean(R2),median=median(R2))
+ld1 <- ld1 %>% mutate(start=as.integer(str_extract(str_replace_all(distc,"[\\(\\)\\[\\]]",""),"^[0-9-e+.]+")),
+                        end=as.integer(str_extract(str_replace_all(distc,"[\\(\\)\\[\\]]",""),"[0-9-e+.]+$")),
+                        mid=start+((end-start)/2))
+
+ggplot(ld1, aes(x = start, y = mean, colour = pop)) + #geom_point()
+  geom_smooth(se = TRUE) +
+  theme_bw() + xlab("Distance in bp") + ylab("R2") +
+  scale_color_manual(values = c(dh_col, fogo_col, sa_col)) 
+
+
+ld1[ld1$start == 0,]
+
+ld1[ld1$pop == "DH" & ld1$mean < 0.2997429,]
+ld1[ld1$pop == "Fogo" & ld1$mean < 0.2389408,]
+ld1[ld1$pop == "SA" & ld1$mean < 0.2505882,]
+
+```
+
+
+## Phenotypes
+
+### Bolting
+
+Distribution of bolting time in the DH pop. Vertical lines show bolting time for each of the eight parents (Fogo in orange, Santo Antão in blue). 
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+bt = read.table("BLUES_Corrected_bolting.txt", header = T)
+
+#### repeatibility aka H2
+#library(heritability)
+#print("Heritability in parents:")
+#repeatability(bt[bt$who == "parent",]$Bolting, bt[bt$who == "parent",]$ID, line.repeatability = TRUE)$repeatability
+#print("Heritability in DH:")
+#repeatability(bt[bt$who == "baby",]$Bolting, bt[bt$who == "baby",]$ID, line.repeatability = TRUE)$repeatability
+
+#bt_median = aggregate(bt[, "Bolting"], list(bt$ID, bt$who), median, na.rm = T)
+#bt_median$island <- substring(bt_median$Group.1, first = 1, last = 1)
+#bt_median$island <- gsub(x = bt_median$island, pattern = "C", replacement = "S")
+
+
+#bt_median_clean = bt_median[bt_median$Group.1 %in% clean$V2,]
+#bt_median_parents = bt_median[bt_median$Group.2 == "parent",]
+
+#wilcox.test(bt_median_clean[, "x"], bt_median_parents[, "x"])
+
+
+bolt_plot = ggplot() + geom_histogram(data = bt[bt$who == "DH",], aes(x = BLUE_new)) +
+  geom_vline(data = bt[!bt$who == "DH",], aes(xintercept = BLUE_new, colour = who)) +
+  theme_bw() + theme(legend.position = "none") +
+  scale_colour_manual(values = c(fogo_col, sa_col)) +
+  xlab("Days to bolting")
+
+print("Parents:")
+summary(bt[!bt$who == "DH","BLUE_new"])
+
+print("DH:")
+summary(bt[bt$who == "DH","BLUE_new"])
+
+print("Median DH =", median(bt[bt$who == "DH", "BLUE_new"], na.rm = TRUE))
+print("SD DH = ", sd(bt[bt$who == "DH", "BLUE_new"], na.rm = TRUE))
+
+print("Median parents = ", median(bt[!bt$who == "DH", "BLUE_new"], na.rm = TRUE))
+print("SD parents = ", sd(bt[!bt$who == "DH", "BLUE_new"], na.rm = TRUE))
+
+wilcox.test(bt[!bt$who == "DH", "BLUE_new"], bt[bt$who == "DH", "BLUE_new"])
+
+data <- read.table("DH_bolting_raw_forBLUES.txt", sep = "\t", header = TRUE) 
+data$who <- ifelse(startsWith(as.character(data$ID), 'S'), "parent", ifelse(startsWith(as.character(data$ID), 'F'), "parent", ifelse(startsWith(as.character(data$ID), 'C'), "parent", "DH")))
+data$who <- as.factor(data$who)
+print("Transgressive segregation")
+library(DescTools)
+DunnettTest(x=na.omit(data)$Bolting, 
+            g=na.omit(data)$who)
+
+
+
+```
+
+Test for transgressive segregation. 
+
+
+### NIR
+
+Rosette size across time in the DH pop (gray) and parents (blue Santo Antão, orange Fogo). 
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+nir = read.table("../Phenovator/DH/results/NIR_allTps_allinds.txt", header = T)
+
+nir_melt <- melt(nir)
+nir_melt$variable <- gsub(pattern = "X", replacement = "", x = nir_melt$variable)
+nir_melt$variable <- as.numeric(nir_melt$variable)
+
+nirt_plot = ggplot(data = nir_melt[nir_melt$Pop == "SA" | nir_melt$Pop == "Fogo" | nir_melt$Pop == "DH",], 
+       aes(x = variable, y = value, group = ID, colour = Pop)) +
+  geom_line() + theme_bw() + theme(legend.position = "none") +
+  xlab("Days after sowing") + ylab("Rosette size (pixels)") +
+  scale_color_manual(values = c(dh_col, fogo_col, sa_col))
+
+
+```
+
+
+### Which timepoint contributes the most for differentiation? And what does the phenotypic distribution look like at that timepoint?
+
+Distribution of rosette size at day 14 after sowing (timepoint 14.65 from Phenovator) -- the timepoint explaining more variation assessed from day 5 to the end of the experiment. Vertical lines show rosette size for each of the eight parents (Fogo in orange, Santo Antão in blue) at the same timepoint. 
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+res.pca <- PCA(nir[nir$Pop == "DH", 28:ncol(nir)], graph = FALSE)
+nir_contr_pca_plot = fviz_pca_contrib(res.pca, choice = "var", axes = 1:2)
+
+nir_tp = nir[, c("ID", "Pop", "X14.65")]
+
+nir_clean = nir_tp[nir_tp$ID %in% clean$V2,]
+
+nir$Pop <- as.character(nir$Pop)
+nir$who <- ifelse(nir$Pop == "SA" | nir$Pop == "Fogo", "parents", nir$Pop)
+
+
+#wilcox.test(nir_clean[, "X12.34"], nir[nir$Pop == "SA" | nir$Pop == "Fogo", "X12.34"])
+
+nir_plot = ggplot() + geom_histogram(data = nir_clean, aes(X14.65)) +
+  geom_vline(data = nir[nir$Pop == "SA", ], aes(xintercept = X14.65), colour = sa_col) +
+  geom_vline(data = nir[nir$Pop == "Fogo", ], aes(xintercept = X14.65), colour = fogo_col) +
+  theme_bw() + theme(legend.position = "none") +
+  scale_colour_manual(values = c(fogo_col, sa_col)) +
+  xlab("Rosette size (pixels)")
+
+print("Parents:")
+summary(nir[nir$Pop == "SA" | nir$Pop == "Fogo", "X14.65"])
+
+print("DH:")
+summary(nir[nir$Pop == "DH", "X14.65"])
+#summary(nir_clean$X14.65)
+
+median(nir[nir$Pop == "DH", "X14.65"], na.rm = TRUE)
+sd(nir[nir$Pop == "DH", "X14.65"], na.rm = TRUE)
+
+median(nir[nir$Pop == "SA" | nir$Pop == "Fogo", "X14.65"], na.rm = TRUE)
+sd(nir[nir$Pop == "SA" | nir$Pop == "Fogo", "X14.65"], na.rm = TRUE)
+
+wilcox.test(nir[nir$Pop == "SA" | nir$Pop == "Fogo", "X14.65"], nir[nir$Pop == "DH", "X14.65"])
+
+data <- read.table("../Phenovator/DH/results/NIR_fromTom.txt", sep = "\t", header = TRUE) 
+data <- data[data$Population == "DH" | data$Population == "parents", ]
+print("Transgressive segregation")
+library(DescTools)
+DunnettTest(x=na.omit(data)$X14.65, 
+            g=na.omit(data)$Population)
+
+
+```
+
+Test for transgressive segregation. 
+
+### PAM
+
+Photosynthetic efficiency across time in the DH pop (gray) and parents (blue Santo Antão, orange Fogo). That weird timepoint -- which is midnight everyday -- was removed in the second dataset. Something with lights in the chamber??
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+pam = read.table("../Phenovator/DH/results/PAM_allTps_allinds.txt", header = T)
+
+pam_melt <- melt(pam)
+pam_melt$variable <- gsub(pattern = "X", replacement = "", x = pam_melt$variable)
+pam_melt$variable <- as.numeric(pam_melt$variable)
+
+ggplot(data = pam_melt[pam_melt$Pop == "SA" | pam_melt$Pop == "Fogo" | pam_melt$Pop == "DH",], 
+       aes(x = variable, y = value, group = ID, colour = Pop)) +
+  geom_line() + theme_bw() +
+  xlab("Days after sowing") + ylab("PAM") +
+  scale_color_manual(values = c(dh_col, fogo_col, sa_col))
+
+pam2 = read.table("../Phenovator/DH/results/PAM_allTps_allinds_withoutWeirdTP.txt", header = TRUE)
+
+pam_melt <- melt(pam2)
+pam_melt$variable <- gsub(pattern = "X", replacement = "", x = pam_melt$variable)
+pam_melt$variable <- as.numeric(pam_melt$variable)
+
+pamt_plot = ggplot(data = pam_melt[pam_melt$Pop == "SA" | pam_melt$Pop == "Fogo" | pam_melt$Pop == "DH",], 
+       aes(x = variable, y = value, group = ID, colour = Pop)) +
+  geom_line() + theme_bw() + theme(legend.position = "none") +
+  xlab("Days after sowing") + ylab("Photosynthetic efficiency (PSII)") +
+  scale_color_manual(values = c(dh_col, fogo_col, sa_col))
+
+
+
+```
+
+### Which timepoint contributes the most for differentiation? And what does the phenotypic distribution look like at that timepoint?
+
+Distribution of photosynthetic efficiency at day 14 after sowing (timepoint 14.65 from Phenovator) -- the timepoint explaining more variation assessed from day 5 to the end of the experiment. Vertical lines show rosette size for each of the eight parents (Fogo in orange, Santo Antão in blue) at the same timepoint. 
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+res.pca <- PCA(pam2[pam2$Pop == "DH", 23:ncol(pam2)], graph = FALSE)
+pam_contr_pca_plot = fviz_pca_contrib(res.pca, choice = "var", axes = 1:2)
+
+pam_tp = pam2[, c("ID", "Pop", "X14.65")]
+
+pam_clean = pam_tp[pam_tp$ID %in% clean$V2,]
+
+#wilcox.test(pam_clean[, "X12.34"], pam[pam$Pop == "SA" | pam$Pop == "Fogo", "X12.34"])
+
+pam_plot = ggplot() + geom_histogram(data = pam_clean, aes(X14.65)) +
+  geom_vline(data = pam[pam$Pop == "SA", ], aes(xintercept = X14.65), colour = sa_col) +
+  geom_vline(data = pam[pam$Pop == "Fogo", ], aes(xintercept = X14.65), colour = fogo_col) +
+  theme_bw() + theme(legend.position = "none") +
+  scale_colour_manual(values = c(fogo_col, sa_col)) +
+  xlab("Photosynthetic efficiency (PSII)")
+
+print("Parents:")
+summary(pam[pam$Pop == "SA" | pam$Pop == "Fogo", "X14.65"])
+
+print("DH:")
+summary(pam[pam$Pop == "DH", "X14.65"])
+#summary(nir_clean$X14.65)
+#summary(pam_clean$X14.65)
+
+median(pam[pam$Pop == "DH", "X14.65"], na.rm = TRUE)
+sd(pam[pam$Pop == "DH", "X14.65"], na.rm = TRUE)
+
+median(pam[pam$Pop == "SA" | pam$Pop == "Fogo", "X14.65"], na.rm = TRUE)
+sd(pam[pam$Pop == "SA" | pam$Pop == "Fogo", "X14.65"], na.rm = TRUE)
+
+wilcox.test(pam[pam$Pop == "SA" | pam$Pop == "Fogo", "X14.65"],pam[pam$Pop == "DH", "X14.65"] )
+
+data <- read.table("../Phenovator/DH/results/PAM_fromTom.txt", sep = "\t", header = TRUE) 
+data <- data[data$Population == "DH" | data$Population == "parents", ]
+print("Transgressive segregation")
+library(DescTools)
+DunnettTest(x=na.omit(data)$X14.65, 
+            g=na.omit(data)$Population)
+
+```
+
+Test for transgressive segregation.
+
+# A priori candidates
+
+For each of the following a priori candidates (FRI, FLC, CRY2, IRT1 and NRAMP), I go to the imputed genomic segments for which I have the most probably parent of origin and infer that the babies have their allele.
+
+## FRI and FLC
+
+
+```{r, echo=FALSE,eval=FALSE, warning=FALSE}
+geno = read.table("fri_flc_genotype_noNA.txt", header = TRUE)
+geno <- merge(geno, who[, 1:2])
+geno <- merge(geno, bt, by.x = "ID", by.y = "extract_names")
+geno$FRIFLC <- paste(geno$FRI, geno$FLC, sep = "-")
+
+
+ggplot(na.omit(geno), aes(x = FRIFLC, y = BLUE_new)) + geom_boxplot(outlier.colour = NA) + geom_jitter() +
+  theme_bw() + ylab("Days to bolting") + xlab("Genotype FRI-FLC") +
+  stat_compare_means(comparisons = list(c("0-0", "0-1"), c("0-0", "1-0"), c("0-0", "1-1"),
+                                        c("0-1", "1-0"), c("0-1", "1-1"), c("1-0", "1-1")))
+
+
+```
+
+FRI (chr4:269719) and FLC (chr5:3179333) genotype from imputed data (from MAGIC software). Bolting is BLUES across 4 reps. Allele 0 is match to the ref, 1 is alternative in Cape Verde. 
+
+
+```{r, echo=FALSE, warning=FALSE}
+
+fri <- mosaic[mosaic$chr == "4" & mosaic$from.bp < 269719 & mosaic$to.bp > 269719,]
+fri$geno <- ifelse(fri$acc == "CVI-0" | fri$acc == "S15-3" | fri$acc == "S5-10", "Der", "Anc")
+fri <- merge(fri, who[, 1:2], by.x = "magic", by.y = "SeqID")
+fri <- merge(fri, bt, by.x = "ID", by.y = "extract_names")
+fri <- fri[, c(1,2,14,15)]
+colnames(fri) <- c("ID","magic","FRI","bolting")
+write.table(fri[, 2:3], "fri_cov.txt", quote = FALSE, sep = " ", row.names = FALSE)
+
+
+flc <- mosaic[mosaic$chr == "5" & mosaic$from.bp < 3179333 & mosaic$to.bp > 3179333,]
+flc$geno <- ifelse(flc$acc == "CVI-0" | flc$acc == "S15-3" | flc$acc == "S5-10" | flc$acc == "S1-1", "Anc", "Der")
+flc <- merge(flc, who[, 1:2], by.x = "magic", by.y = "SeqID")
+flc <- merge(flc, bt, by.x = "ID", by.y = "extract_names")
+flc <- flc[, c(1,2,14,15)]
+colnames(flc) <- c("ID","magic","FLC","bolting")
+write.table(flc[, 2:3], "flc_cov.txt", quote = FALSE, sep = " ", row.names = FALSE)
+
+
+cry <- mosaic[mosaic$chr == "1" & mosaic$from.bp < 1186604 & mosaic$to.bp > 1186604,]
+cry$geno <- ifelse(cry$acc == "CVI-0" | cry$acc == "S15-3" | cry$acc == "S5-10", "Der", "Anc")
+cry <- merge(cry, who[, 1:2], by.x = "magic", by.y = "SeqID")
+cry <- merge(cry, bt, by.x = "ID", by.y = "extract_names")
+cry <- cry[, c(1,2,14,15)]
+colnames(cry) <- c("ID","magic","CRY","bolting")
+write.table(cry[, 2:3], "cry_cov.txt", quote = FALSE, sep = " ", row.names = FALSE)
+
+atx <- mosaic[mosaic$chr == "1" & mosaic$from.bp < 1754824 & mosaic$to.bp > 1754824,]
+atx$geno <- ifelse(atx$acc == "CVI-0" | atx$acc == "S15-3" | atx$acc == "S5-10", "Der", "Anc")
+atx <- merge(atx, who[, 1:2], by.x = "magic", by.y = "SeqID")
+atx <- merge(atx, bt, by.x = "ID", by.y = "extract_names")
+atx <- atx[, c(1,2,14,15)]
+colnames(atx) <- c("ID","magic","ATX","bolting")
+
+gi <- mosaic[mosaic$chr == "1" & mosaic$from.bp < 8065458 & mosaic$to.bp > 8065458,]
+gi$geno <- ifelse(gi$acc == "CVI-0" | gi$acc == "S15-3" | gi$acc == "S5-10", "Der", "Anc")
+gi <- merge(gi, who[, 1:2], by.x = "magic", by.y = "SeqID")
+gi <- merge(gi, bt, by.x = "ID", by.y = "extract_names")
+gi <- gi[, c(1,2,14,15)]
+colnames(gi) <- c("ID","magic","GI","bolting")
+
+
+genos <- merge(fri, flc)
+genos <- merge(genos, cry)
+genos <- merge(genos, atx)
+genos <- merge(genos, gi)
+genos$FRIFLC <- paste(genos$FRI, genos$FLC, sep = "-")
+genos$FRIFLCCRY <- paste(genos$FRIFLC, genos$CRY, sep = "-")
+genos$FRIFLCATX <- paste(genos$FRIFLC, genos$ATX, sep = "-")
+
+
+fri %>% group_by(FRI) %>%
+  summarise(n = n()) %>%
+  mutate(freq = n / sum(n))
+
+flc %>% group_by(FLC) %>%
+  summarise(n = n()) %>%
+  mutate(freq = n / sum(n))
+
+cry %>% group_by(CRY) %>%
+  summarise(n = n()) %>%
+  mutate(freq = n / sum(n))
+
+friflc_plot = ggplot(genos, aes(x = FRIFLC, y = bolting)) + geom_boxplot(outlier.colour = NA) + geom_jitter() +
+  theme_bw() + xlab("Genotype FRI-FLC") + ylab("Days to bolting") +
+  stat_compare_means(comparisons = list(c("Anc-Anc", "Anc-Der"), c("Anc-Anc", "Der-Anc"), c("Anc-Anc", "Der-Der"), c("Anc-Der", "Der-Anc"), c("Anc-Der", "Der-Der"), c("Der-Anc", "Der-Der")))
+
+print("Mean FRI Anc - FLC Anc:")
+mean(genos[genos$FRIFLC == "Anc-Anc", "bolting"])
+print("Mean FRI Der - FLC Anc:")
+mean(genos[genos$FRIFLC == "Der-Anc", "bolting"])
+print("Mean FRI Anc - FLC Der:")
+mean(genos[genos$FRIFLC == "Anc-Der", "bolting"])
+print("Mean FRI Der - FLC Der:")
+mean(genos[genos$FRIFLC == "Der-Der", "bolting"])
+
+
+
+
+
+```
+
+*A mutation in either FRI or FLC is enough to reduce bolting time. Having both mutations is not different than having only a mutation in FLC. Having only a mutation in FLC reduces bolting time more than having only in FRI. Having both a mutation in FRI and in FLC reduces bolting time further.*
+
+
+## FRI, FLC and CRY2
+
+FRI, FLC and CRY2 (chr1:1186604) genotype from imputed data (from MAGIC software). Bolting is median across 4 reps. Allele Anc is match to the ref, Der is alternative in Cape Verde. 
+
+
+```{r, echo=FALSE,eval=FALSE}
+
+geno$FRIFLCCRY <- paste(geno$FRIFLC, geno$CRY2, sep = "-")
+
+ggplot(na.omit(geno[data$who == "DH",]), aes(x = FRIFLCCRY, y = x)) + geom_boxplot(outlier.colour = NA) + geom_jitter() +
+  theme_bw() + ylab("Days to bolting") + xlab("Genotype FRI-FLC-CRY2") +
+  stat_compare_means(comparisons = list(c("0-0-0", "0-0-1"), 
+                                        c("0-0-1", "0-1-0"), c("0-0-1", "1-0-0"), c("0-1-0", "0-1-1"),
+                                        c("1-0-0", "1-0-1"), c("1-1-0", "1-1-1")))
+
+```
+
+
+```{r, echo=FALSE, warning=FALSE}
+ggplot(cry, aes(x = CRY, y = bolting)) + geom_boxplot(outlier.colour = NA) + geom_jitter() +
+  theme_bw() + xlab("Genotype CRY2") + ylab("Days to bolting") +
+  stat_compare_means(comparisons = list(c("Anc", "Der")))
+
+friflccry_plot = ggplot(genos, aes(x = FRIFLCCRY, y = bolting)) + geom_boxplot(outlier.colour = NA) + geom_jitter() +
+  theme_bw() + xlab("Genotype FRI-FLC-CRY2") + ylab("Days to bolting") +
+  stat_compare_means(comparisons = list(c("Anc-Anc-Anc", "Anc-Anc-Der"), c("Anc-Der-Anc", "Anc-Der-Der"), c("Der-Anc-Anc", "Der-Anc-Der"), c("Der-Der-Anc", "Der-Der-Der"))) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print("Mean CRY2 Anc:")
+mean(genos[genos$CRY == "Anc", "bolting"])
+print("Mean CRY2 Der:")
+mean(genos[genos$CRY == "Der", "bolting"])
+
+print("Mean FRI Anc - FLC Anc - CRY2 Anc:")
+mean(genos[genos$FRIFLCCRY == "Anc-Anc-Anc", "bolting"])
+print("Mean FRI Anc - FLC Anc - CRY2 Der:")
+mean(genos[genos$FRIFLCCRY == "Anc-Anc-Der", "bolting"])
+print("Mean FRI Anc - FLC Der - CRY2 Anc:")
+mean(genos[genos$FRIFLCCRY == "Anc-Der-Anc", "bolting"])
+print("Mean FRI Anc - FLC Der - CRY2 Der:")
+mean(genos[genos$FRIFLCCRY == "Anc-Der-Der", "bolting"])
+print("Mean FRI Der - FLC Der - CRY2 Anc:")
+mean(genos[genos$FRIFLCCRY == "Der-Der-Anc", "bolting"])
+print("Mean FRI Der - FLC Der - CRY2 Der:")
+mean(genos[genos$FRIFLCCRY == "Der-Der-Der", "bolting"])
+print("Mean FRI Der - FLC Anc - CRY2 Anc:")
+mean(genos[genos$FRIFLCCRY == "Der-Anc-Anc", "bolting"])
+print("Mean FRI Der - FLC Anc - CRY2 Der:")
+mean(genos[genos$FRIFLCCRY == "Der-Anc-Der", "bolting"])
+
+
+genos$FRIFLCCRY <- factor(genos$FRIFLCCRY)
+modelcry = lm(bolting ~ FRI * FLC * CRY, data = na.omit(genos))
+summary(modelcry)
+
+library(multcomp)
+modelcry2 = lm(bolting ~ FRIFLCCRY, data = na.omit(genos))
+summary(glht(modelcry2, linfct = mcp(FRIFLCCRY = 'Tukey')))
+
+
+
+
+```
+
+
+*CRY2 Der alone in a ancestral FRI and FLC background has no effect. In a FLC Der background, CRY2 Der reduces bolting time, independently of FRI. In a FLC Anc background, CRY2 has no effect. *
+
+
+## ATX2
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(atx, aes(x = ATX, y = bolting)) + geom_boxplot(outlier.colour = NA) + geom_jitter() +
+  theme_bw() + xlab("Genotype ATX2") + ylab("Days to bolting") +
+  stat_compare_means(comparisons = list(c("Anc", "Der")))
+
+print("Mean ATX2 Anc:")
+mean(genos[genos$ATX == "Anc", "bolting"])
+print("Mean ATX2 Der:")
+mean(genos[genos$ATX == "Der", "bolting"])
+
+
+ggplot(genos, aes(x = FRIFLCATX, y = bolting)) + geom_boxplot(outlier.colour = NA) + geom_jitter() +
+  theme_bw() + xlab("Genotype FRI-FLC-ATX2") + ylab("Days to bolting") +
+  stat_compare_means(comparisons = list(c("Anc-Anc-Anc", "Anc-Anc-Der"), c("Anc-Der-Anc", "Anc-Der-Der"), c("Der-Anc-Anc", "Der-Anc-Der"), c("Der-Der-Anc", "Der-Der-Der")))
+
+
+print("Mean FRI Anc - FLC Der - ATX2 Anc:")
+mean(genos[genos$FRIFLCATX == "Anc-Der-Anc", "bolting"])
+print("Mean FRI Anc - FLC Der - ATX2 Der:")
+mean(genos[genos$FRIFLCATX == "Anc-Der-Der", "bolting"])
+print("Mean FRI Der - FLC Der - ATX2 Anc:")
+mean(genos[genos$FRIFLCATX == "Der-Der-Anc", "bolting"])
+print("Mean FRI Der - FLC Der - ATX2 Der:")
+mean(genos[genos$FRIFLCATX == "Der-Der-Der", "bolting"])
+
+```
+
+
+## PEN3
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+pen <- mosaic[mosaic$chr == "3" & mosaic$from.bp < 18584107 & mosaic$to.bp > 18584107,]
+pen$geno <- ifelse(pen$acc == "S5-10", "Der", "Anc")
+pen <- merge(pen, who[, 1:2], by.x = "magic", by.y = "SeqID")
+pen <- merge(pen, bt, by.x = "ID", by.y = "extract_names")
+pen <- pen[, c(1,2,14,15)]
+colnames(pen) <- c("ID","magic","PEN3","bolting")
+
+pen_plot = ggplot(pen, aes(x = PEN3, y = bolting)) + geom_boxplot(outlier.colour = NA) + geom_jitter() +
+  theme_bw() + xlab("Genotype PEN3") + ylab("Days to bolting") +
+  stat_compare_means(comparisons = list(c("Anc", "Der")))
+
+print("Mean PEN3 Anc:")
+mean(pen[pen$PEN3 == "Anc", "bolting"])
+print("Mean PEN3 Der:")
+mean(pen[pen$PEN3 == "Der", "bolting"])
+
+pen %>% group_by(PEN3) %>%
+  summarise(n = n()) %>%
+  mutate(freq = n / sum(n))
+
+
+```
+
+
+## GI
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+ggplot(gi, aes(x = GI, y = bolting)) + geom_boxplot(outlier.colour = NA) + geom_jitter() +
+  theme_bw() + xlab("Genotype GI") + ylab("Days to bolting") +
+  stat_compare_means(comparisons = list(c("Anc", "Der")))
+
+print("Mean GI Anc:")
+mean(gi[gi$GI == "Anc", "bolting"])
+print("Mean GI Der:")
+mean(gi[gi$GI == "Der", "bolting"])
+
+gi %>% group_by(GI) %>%
+  summarise(n = n()) %>%
+  mutate(freq = n / sum(n))
+
+
+```
+
+
+## IRT1
+
+IRT1 (chr4:10707974) genotype from imputed data (from MAGIC software). PAM and NIR are from Phenovator, accounting for block effects, across 4 reps. Allele Anc is match to the ref, Der is alternative in Cape Verde. 
+
+
+```{r, echo=FALSE, warning=FALSE}
+
+irt <- mosaic[mosaic$chr == "4" & mosaic$from.bp < 10707974 & mosaic$to.bp > 10707974,]
+irt$geno <- ifelse(irt$acc == "CVI-0" | irt$acc == "S15-3" | irt$acc == "S1-1" | irt$acc == "S5-10", "Anc", "Der")
+irt <- merge(irt, who[, 1:2], by.x = "magic", by.y = "SeqID")
+irt <- merge(irt, nir_clean)
+irt <- irt[, c(1,2,14,16)]
+colnames(irt) <- c("ID","magic","IRT1","RosetteSize")
+
+
+irt <- merge(irt, pam_clean)
+
+irt_pam_plot = ggplot(irt, aes(x = IRT1, y = X14.65)) + geom_boxplot(outlier.colour = NA) + geom_jitter() +
+  theme_bw() + xlab("Genotype IRT1") + ylab("Photosynthetic efficiency") +
+  stat_compare_means()
+
+irt_nir_plot = ggplot(irt, aes(x = IRT1, y = RosetteSize)) + geom_boxplot(outlier.colour = NA) + geom_jitter() +
+  theme_bw() + xlab("Genotype IRT1") + ylab("Rosette size") +
+  stat_compare_means()
+
+write.table(irt[, 2:3], "irt_cov.txt", quote = FALSE, sep = " ", row.names = FALSE)
+
+print("Size -- Mean IRT1 Anc:")
+mean(irt[irt$IRT1 == "Anc", "RosetteSize"])
+print("Size -- Mean IRT1 Der:")
+mean(irt[irt$IRT1 == "Der", "RosetteSize"])
+
+print("PAM -- Mean IRT1 Anc:")
+mean(irt[irt$IRT1 == "Anc", "X14.65"])
+print("PAM -- Mean IRT1 Der:")
+mean(irt[irt$IRT1 == "Der", "X14.65"])
+
+irt %>% group_by(IRT1) %>%
+  summarise(n = n()) %>%
+  mutate(freq = n / sum(n))
+
+```
+
+*IRT1 Der reduces rosette size and photosynthetic efficiency. For PAM, IRT1 Der has great variance -- perhaps associated with NRAMP.*
+
+
+## IRT1 and NRAMP
+
+Using SNP chr1:30363708 to tag NRAMP. This SNP actually is one of the two Manu used to distinguish breakpoints. When I use the other SNP (associated to another breakpoint), I get the same imputed parent, so I am using only this SNP. Then, I take the imputed parent and inferred that their copy number is the same. 
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+nramp_1 <- mosaic[mosaic$chr == "1" & mosaic$from.bp < 30363708 & mosaic$to.bp > 30363708,]
+#nramp_1$geno <- ifelse(nramp_1$acc == "CVI-0" | nramp_1$acc == "S15-3" | nramp_1$acc == "S1-1" | nramp_1$acc == "S5-10", "Anc", "Der")
+nramp_1 <- merge(nramp_1, who[, 1:2], by.x = "magic", by.y = "SeqID")
+nramp_1 <- merge(nramp_1, irt)
+
+nramp_1$copies <- ifelse(nramp_1$acc == "F3-2", 6,
+                         ifelse(nramp_1$acc == "F13-8", 3,
+                                ifelse(nramp_1$acc == "F10-1-3", 2,
+                                       ifelse(nramp_1$acc == "F9-2", 5, 1))))
+
+nramp_1$IRTNRAMP <- paste(nramp_1$IRT1, paste(nramp_1$copies, "copies", sep = ""), sep = "-")
+
+inp_plot = ggplot(nramp_1, aes(x = IRTNRAMP, y = X14.65)) + geom_boxplot(outlier.colour = NA) + geom_jitter() +
+  theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  xlab("Genotype IRT1-NRAMP copy number") + ylab("Photosynthetic efficiency") +
+  stat_compare_means(comparisons = list(c("Anc-1copies", "Anc-2copies"), c("Anc-1copies", "Anc-3copies"), c("Anc-1copies", "Anc-5copies"), c("Anc-1copies", "Anc-6copies"), c("Anc-2copies", "Anc-3copies"), c("Anc-2copies", "Anc-5copies"), c("Anc-2copies", "Anc-6copies"), c("Anc-3copies", "Anc-5copies"), c("Anc-3copies", "Anc-6copies"), c("Anc-5copies", "Anc-6copies"), 
+                                        c("Der-1copies", "Der-2copies"), c("Der-1copies", "Der-3copies"), c("Der-1copies", "Der-5copies"), c("Der-1copies", "Der-6copies"), c("Der-2copies", "Der-3copies"), c("Der-2copies", "Der-5copies"), c("Der-2copies", "Der-6copies"), c("Der-3copies", "Der-5copies"), c("Der-3copies", "Der-6copies"), c("Der-5copies", "Der-6copies")), 
+                     label.y = c(0.75, 0.8, 0.85, 0.9, 0.95, 1, 1.05, 1.1, 1.15, 1.2, 0.75, 0.8, 0.85, 0.9, 0.95, 1, 1.05, 1.1, 1.15, 1.2))
+
+
+inn_plot = ggplot(nramp_1, aes(x = IRTNRAMP, y = RosetteSize)) + geom_boxplot(outlier.colour = NA) + geom_jitter() +
+  theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  xlab("Genotype IRT1-NRAMP copy number") + ylab("Rosette size") +
+  stat_compare_means(comparisons = list(c("Anc-1copies", "Anc-2copies"), c("Anc-1copies", "Anc-3copies"), c("Anc-1copies", "Anc-5copies"), c("Anc-1copies", "Anc-6copies"), c("Anc-2copies", "Anc-3copies"), c("Anc-2copies", "Anc-5copies"), c("Anc-2copies", "Anc-6copies"), c("Anc-3copies", "Anc-5copies"), c("Anc-3copies", "Anc-6copies"), c("Anc-5copies", "Anc-6copies"), 
+                                        c("Der-1copies", "Der-2copies"), c("Der-1copies", "Der-3copies"), c("Der-1copies", "Der-5copies"), c("Der-1copies", "Der-6copies"), c("Der-2copies", "Der-3copies"), c("Der-2copies", "Der-5copies"), c("Der-2copies", "Der-6copies"), c("Der-3copies", "Der-5copies"), c("Der-3copies", "Der-6copies"), c("Der-5copies", "Der-6copies")), 
+                     label.y = c(1600, 1750, 1900, 2050, 2200, 2350, 2500, 2650, 2800, 2950, 1600, 1750, 1900, 2050, 2200, 2350, 2500, 2650, 2800, 2950))
+
+
+```
+
+If IRT1 is Anc, NRAMP copy number has no effect. In a Der IRT1 background, overall more copies means more photosynthetic efficiency, even though the addition of a single copy has no effect (1 < 2 but 2 = 3 = 5 = 6; however, 2 < 5 and < 6, and 3 < 6).
+
+# Mapping
+
+Run GEMMA in terminal. Example:
+
+'/home/neto/gemma/bin/gemma' -bfile DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses -k output/DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses.cXX.txt -n 5 -lmm 4 -o DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses_PAM_14.65
+
+## Bolting
+
+!!!! Whenever a covariate is added downstream, the genotyping for that candidate comes from the imputed segment information, from the MAGIC software -- same date used above for Anc-Der comparisons. This could be the reasin why adding a covarite does not work so well in some cases. 
+
+```{r, echo=FALSE, warning=FALSE}
+bolt_map = read.table("output/DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses_boltingBLUEs.assoc.txt", header = T)
+
+man_bolt_plot = ggplot(bolt_map, aes(x = ps, y = -log10(p_lrt))) + geom_point() +
+  facet_grid(.~ chr, scales = "free_x") + theme_bw() + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  xlab("Chromosome position") +
+  geom_hline(yintercept = -log10(0.05/nrow(bolt_map)), linetype = 2)
+  
+bolt_map[-log10(bolt_map$p_lrt) > -log10(0.05/nrow(bolt_map)), ]
+#bolt_map[bolt_map$ps == 18954301, ] ## NERD1
+
+## FRI, FLC and something on chr3????
+```
+
+*Three peaks: chr5, chr4 and chr3. The two on chr5 and chr4 probably correspond respectively to FLC and FRI. No a priori candidate for peak on chr3. PVE = 0.795316*
+
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, eval=FALSE}
+
+### Bolting with FLC as a covariate
+
+bolt_flc = read.table("output/DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses_bolting_FLCcov.assoc.txt", header = T)
+
+ggplot(bolt_flc, aes(x = ps, y = -log10(p_lrt))) + geom_point() +
+  facet_grid(.~ chr, scales = "free_x") + theme_bw() + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  xlab("Chromosome position") +
+  geom_hline(yintercept = -log10(0.05/nrow(bolt_flc)), linetype = 2)
+  
+bolt_flc[-log10(bolt_flc$p_lrt) > -log10(0.05/nrow(bolt_flc)), ]
+
+*With FLC in as a covariate, the peak on chr5 disappears (sort of; there is still another one at the same region but less significant). FRI (probably) becomes more significant. PVE = 0.55009*
+
+```
+
+
+
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, eval=FALSE}
+
+### Bolting with FRI as a covariate
+
+
+bolt_fri = read.table("output/DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses_bolting_FRIcov.assoc.txt", header = T)
+
+ggplot(bolt_fri, aes(x = ps, y = -log10(p_lrt))) + geom_point() +
+  facet_grid(.~ chr, scales = "free_x") + theme_bw() + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  xlab("Chromosome position") +
+  geom_hline(yintercept = -log10(0.05/nrow(bolt_fri)), linetype = 2)
+  
+bolt_fri[-log10(bolt_fri$p_lrt) > -log10(0.05/nrow(bolt_fri)), ]
+
+*With FRI as a covariate, the plot changes only slightly. ??? PVE = 0.784375*
+
+
+```
+
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, eval=FALSE}
+
+### Bolting with FLC and FRI as a covariate
+
+
+bolt_flcfri = read.table("output/DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses_bolting_FLCFRIcov.assoc.txt", header = T)
+
+ggplot(bolt_flcfri, aes(x = ps, y = -log10(p_lrt))) + geom_point() +
+  facet_grid(.~ chr, scales = "free_x") + theme_bw() + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  xlab("Chromosome position") +
+  geom_hline(yintercept = -log10(0.05/nrow(bolt_flcfri)), linetype = 2)
+  
+bolt_flcfri[-log10(bolt_flcfri$p_lrt) > -log10(0.05/nrow(bolt_flcfri)), ]
+
+
+*Adding both FLC and FRI as covariates produces the same result as adding FLC alone. PVE = 0.507802*
+
+
+```
+
+
+
+## NIR
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+nir_map = read.table("output/DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses_NIR_14.65.assoc.txt", header = T)
+
+man_nir_plot = ggplot(nir_map, aes(x = ps, y = -log10(p_lrt))) + geom_point() +
+  facet_grid(.~ chr, scales = "free_x") + theme_bw() + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  xlab("Chromosome position") +
+  geom_hline(yintercept = -log10(0.05/nrow(nir_map)), linetype = 2)
+  
+nir_map[-log10(nir_map$p_lrt) > -log10(0.05/nrow(nir_map)), ]
+## IRT1
+
+```
+
+*Mapping NIR results in one significant peak in chr4, probably at IRT1. PVE = 0.476762*
+
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, eval=FALSE}
+
+### NIR with IRT1 as a covariate
+
+
+nir_cov = read.table("output/DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses_NIR_14.65_IRT1cov.assoc.txt", header = T)
+
+ggplot(nir_cov, aes(x = ps, y = -log10(p_lrt))) + geom_point() +
+  facet_grid(.~ chr, scales = "free_x") + theme_bw() + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  xlab("Chromosome position") +
+  geom_hline(yintercept = -log10(0.05/nrow(nir_cov)), linetype = 2)
+  
+nir_cov[-log10(nir_cov$p_lrt) > -log10(0.05/nrow(nir_cov)), ]
+
+*Adding IRT1 only slightly changed the results ???? PVE = 0.468511*
+
+
+```
+
+
+
+## PAM
+
+```{r, echo=FALSE, warning=FALSE}
+pam_map = read.table("output/DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses_PAM_14.65.assoc.txt", header = T)
+
+man_pam_plot = ggplot(pam_map, aes(x = ps, y = -log10(p_lrt))) + geom_point() +
+  facet_grid(.~ chr, scales = "free_x") + theme_bw() + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  xlab("Chromosome position") +
+  geom_hline(yintercept = -log10(0.05/nrow(pam_map)), linetype = 2)
+  
+pam_map[-log10(pam_map$p_lrt) > -log10(0.05/nrow(pam_map)), ]
+pam_map[order(pam_map$p_lrt),]
+
+
+```
+
+*Mapping PAM results in one significant peak in chr4, probably at IRT1. PVE = 0.733984*
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, eval=FALSE}
+
+### PAM with IRT1 as a covariate
+
+
+pam_cov = read.table("output/DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses_PAM_14.65_IRT1cov.assoc.txt", header = T)
+
+ggplot(pam_cov, aes(x = ps, y = -log10(p_lrt))) + geom_point() +
+  facet_grid(.~ chr, scales = "free_x") + theme_bw() + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  xlab("Chromosome position") +
+  geom_hline(yintercept = -log10(0.05/nrow(pam_cov)), linetype = 2)
+  
+pam_cov[-log10(pam_cov$p_lrt) > -log10(0.05/nrow(pam_cov)), ]
+
+*Adding IRT1 only slightly changed the results ???? PVE = 0.702254*
+
+
+```
+
+
+
+####### Export plots
+
+```{r}
+## Figure 2
+top = ggarrange(plotlist = list(mosaic_plot, ggarrange(plotlist = list(seg2_plot, seg_plot), ncol = 1, labels = c("B", "C"))), widths = c(2,1), labels = "A")
+
+ggarrange(plotlist = list(top, pca_plot), nrow = 2, labels = c("", "D"))
+
+
+### Figure 3
+ggarrange(plotlist = list(bolt_plot, nir_plot, pam_plot), ncol = 1, labels = c("A", "B", "C"))
+
+
+### Figure 4
+ggarrange(plotlist = list(man_bolt_plot, friflc_plot, man_nir_plot, irt_nir_plot, man_pam_plot, irt_pam_plot), widths = c(2,1,2,1,2,1), ncol = 2, nrow = 3, labels = c("A", "B", "C", "D", "E", "F"))
+
+
+### Supp Fig 2
+ggarrange(plotlist = list(ggarrange(plotlist = list(hets_plot, fami_plot, freq_plot, pare_plot), labels = c("A", "B", "C", "D"), nrow = 2, ncol = 2), contr_plot), nrow = 2, labels = c("", "E"), heights = c(2,1))
+
+
+### Supp Fig 4
+ggarrange(plotlist = list(nirt_plot, nir_contr_pca_plot, pamt_plot, pam_contr_pca_plot), ncol = 2, nrow = 2, labels = c("A", "B", "C", "D"))
+
+
+### Supp Fig 5
+ggarrange(plotlist = list(friflccry_plot, pen_plot, inp_plot, inn_plot), ncol = 2, nrow = 2, labels = c("A", "B", "C", "D"), align = "hv")
+
+
+
+```
+
+
+
+
+
+
+
+
+

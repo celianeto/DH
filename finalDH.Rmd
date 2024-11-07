@@ -284,196 +284,6 @@ pi = rbind(pi_babies, pi_parents)
 ```
 
 
-## Segregation distortion
-
-For each marker, I tested using a Chi-sqaure the differenece between expected and observed. Since expected depends on who the parents are, this was done per family. First, for each family, I took the parental genotypes for each marker as the expected: all four 0s (matches to the ref) will expect all 0s; all four 1s will expect all 1s; two 1s and two 0s will expect 50% 1s and 50% 0s and so on.... This follows Mendel for single locus.
-
-```{r, echo=FALSE, warning=FALSE, message=FALSE, eval=FALSE}
-
-#freq = read.table("DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses_interIslandsOnly.frq", header = TRUE)
-
-#freq[c('ALLELE1', 'FREQ1')] <- str_split_fixed(freq$ALLELE1.FREQ1, ':', 2)
-#freq[c('ALLELE2', 'FREQ2')] <- str_split_fixed(freq$ALLELE2.FREQ2, ':', 2)
-#freq$FREQ1 <- as.numeric(freq$FREQ1)
-#freq$FREQ2 <- as.numeric(freq$FREQ2)
-
-parentsalleles = read.table("parentsAlleles.txt", header = TRUE, check.names = FALSE)
-parentsalleles[,5:12] <- lapply(parentsalleles[,5:12], function(f) as.numeric(levels(f))[f])
-
-
-gp = read.table("grandparentsFamily.txt", header = TRUE)
-
-babies = read.table("DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses_interIslandsOnly.GT.FORMAT", header = TRUE, check.names = FALSE)
-
-babies = babies %>% 
-  mutate_all(funs(str_replace(., "1/1", "1")))
-
-babies = babies %>% 
-  mutate_all(funs(str_replace(., "0/0", "0")))
-
-babies = babies %>% 
-  mutate_all(funs(str_replace(., "./.", ".")))
-
-babies[babies == "."] <- NA
-babies = subset(babies, select = -c(`4200_H`)) ## has 0 coverage 
-
-
-########!!!!!! family 49, 27, 29, 48 disappeared in babies
-famis <- c(77, 26, 70, 21, 2, 75, 36, 64, 31, 43, 59, 60, 72, 42, 63, 73, 1, 35, 51, 38, 74, 37, 56, 23, 55, 53, 57, 25, 6, 13, 19, 44, 67, 8, 68, 15, 34, 76)
-
-dff <- data.frame()
-for (familyofinterest in famis) {
-
-#familyofinterest = 26 #### change here!!!!!!!!
-
-gps = as.character(unlist(unique(gp[gp$Family == familyofinterest, 4:7])))
-gps_alleles = parentsalleles[, colnames(parentsalleles) %in% gps]
-gps_alleles = cbind(parentsalleles[,1:4], gps_alleles)
-#gps_alleles$sum = rowSums(gps_alleles[, 5:8])
-#gps_alleles$freq = ifelse(gps_alleles$sum == 0, 0, 
-                          #ifelse(gps_alleles$sum == 1 , 0.25, 
-                                 #ifelse(gps_alleles$sum == 2, 0.5,
-                                        #ifelse(gps_alleles$sum == 3, 0.75, 1))))
-
-
-bb = as.character(gp[gp$Family == familyofinterest,1])
-bbs_alleles = babies[, colnames(babies) %in% bb]
-bbs_alleles = cbind(babies[,1:2], bbs_alleles)
-bbs_alleles = na.omit(bbs_alleles)
-bbs_alleles[,3:ncol(bbs_alleles)] <- sapply(bbs_alleles[,3:ncol(bbs_alleles)],as.numeric)
-#bbs_alleles$freq <- rowSums(bbs_alleles[, 3:ncol(bbs_alleles)]) / (ncol(bbs_alleles)-2)
-
-final = merge(gps_alleles, bbs_alleles, by = c("CHROM", "POS"))
-final = na.omit(final)
-
-df <- data.frame()
-for (i in 1:nrow(final)) {
-  
-m <- cbind(table(as.numeric(final[i, 5:8])), table(as.numeric(final[i, 9:ncol(final)])))
-pp <- chisq.test(m)$p.value
-print(paste(i, chisq.test(m)$p.value))
-
-#pt <- sum(as.numeric(final[i, 5:8])) / 4
-#bs <- sum(as.numeric(final[i, 9:ncol(final)])) / (ncol(final)-8)
-
-
-#df <- rbind(df, cbind(pp, i, familyofinterest, pt, bs, final[, c("CHROM", "POS")]))
-
-df <- rbind(df, cbind(i, chisq.test(m)$p.value, familyofinterest))
-}
-colnames(df) <- c("index", "p.value", "family")
-dff <- rbind(dff, df)
-
-}
-
-dff[dff$p.value < 0.05,]
-
-library(dplyr)
-dff[dff$p.value < 0.05,] %>% count(family)
-
-
-fam26 <- df
-fam26$fam <- "26"
-fam77 <- df
-fam77$fam <- "77"
-fam70 <- df
-fam70$fam <- "70"
-fam21 <- df
-fam21$fam <- "21"
-fam2 <- df
-fam2$fam <- "2"
-fam75 <- df
-fam75$fam <- "75"
-fam36 <- df
-fam36$fam <- "36"
-fam64 <- df
-fam64$fam <- "64"
-fam31 <- df
-fam31$fam <- "31"
-fam43 <- df
-fam43$fam <- "43"
-fam59 <- df
-fam59$fam <- "59"
-fam60 <- df
-fam60$fam <- "60"
-fam72 <- df
-fam72$fam <- "72"
-fam42 <- df
-fam42$fam <- "42"
-fam63 <- df
-fam63$fam <- "63"
-fam73 <- df
-fam73$fam <- "73"
-fam1 <- df
-fam1$fam <- "1"
-fam35 <- df
-fam35$fam <- "35"
-fam51 <- df
-fam51$fam <- "51"
-fam38 <- df
-fam38$fam <- "38"
-fam74 <- df
-fam74$fam <- "74"
-fam37 <- df
-fam37$fam <- "37"
-fam56 <- df
-fam56$fam <- "56"
-fam23 <- df
-fam23$fam <- "23"
-fam55 <- df
-fam55$fam <- "55"
-fam53 <- df
-fam53$fam <- "53"
-fam57 <- df
-fam57$fam <- "57"
-fam25 <- df
-fam25$fam <- "25"
-fam6 <- df
-fam6$fam <- "6"
-fam13 <- df
-fam13$fam <- "13"
-fam19 <- df
-fam19$fam <- "19"
-fam44 <- df
-fam44$fam <- "44"
-fam67 <- df
-fam67$fam <- "67"
-fam8 <- df
-fam8$fam <- "8"
-fam68 <- df
-fam68$fam <- "68"
-fam15 <- df
-fam15$fam <- "15"
-fam34 <- df
-fam34$fam <- "34"
-fam76 <- df
-fam76$fam <- "76"
-
-df[df$p.value < 0.05,]
-final
-
-final$distorted <- ifelse(rownames(final) %in% dff[dff$p.value < 0.05 & dff$family == 26, "index"], "distorted", "not")
-
-out <- final %>% filter(rownames(final) %in% dff[dff$p.value < 0.05 & dff$family == 26, "index"])
-
-out21 <- out
-
-ggplot(out, aes(x = POS, y = CHROM)) + geom_jitter(height = 0.2, width = 0)
-
-ggplot() + 
-  geom_jitter(data = final[final$distorted == "not",], aes(x = POS, y = CHROM, colour = distorted), height = 0.2, width = 0) +
-  geom_jitter(data = final[final$distorted == "distorted",], aes(x = POS, y = CHROM, colour = distorted), height = 0.2, width = 0) +
-  scale_color_manual(values = c("black", "grey90")) +
-  theme_bw()
-
-
-
-
-```
-
-No marker in any family has a p-value < 0.05. However, propably there aren't enough babies per family for the test to have any power. 
-
-
 ## LD 
 
 ### In the DH pop
@@ -870,29 +680,11 @@ cry <- cry[, c(1,2,14,15)]
 colnames(cry) <- c("ID","magic","CRY","bolting")
 write.table(cry[, 2:3], "cry_cov.txt", quote = FALSE, sep = " ", row.names = FALSE)
 
-atx <- mosaic[mosaic$chr == "1" & mosaic$from.bp < 1754824 & mosaic$to.bp > 1754824,]
-atx$geno <- ifelse(atx$acc == "CVI-0" | atx$acc == "S15-3" | atx$acc == "S5-10", "Der", "Anc")
-atx <- merge(atx, who[, 1:2], by.x = "magic", by.y = "SeqID")
-atx <- merge(atx, bt, by.x = "ID", by.y = "extract_names")
-atx <- atx[, c(1,2,14,15)]
-colnames(atx) <- c("ID","magic","ATX","bolting")
-
-gi <- mosaic[mosaic$chr == "1" & mosaic$from.bp < 8065458 & mosaic$to.bp > 8065458,]
-gi$geno <- ifelse(gi$acc == "CVI-0" | gi$acc == "S15-3" | gi$acc == "S5-10", "Der", "Anc")
-gi <- merge(gi, who[, 1:2], by.x = "magic", by.y = "SeqID")
-gi <- merge(gi, bt, by.x = "ID", by.y = "extract_names")
-gi <- gi[, c(1,2,14,15)]
-colnames(gi) <- c("ID","magic","GI","bolting")
-
-
 genos <- merge(fri, flc)
 genos <- merge(genos, cry)
-genos <- merge(genos, atx)
-genos <- merge(genos, gi)
+
 genos$FRIFLC <- paste(genos$FRI, genos$FLC, sep = "-")
 genos$FRIFLCCRY <- paste(genos$FRIFLC, genos$CRY, sep = "-")
-genos$FRIFLCATX <- paste(genos$FRIFLC, genos$ATX, sep = "-")
-
 
 fri %>% group_by(FRI) %>%
   summarise(n = n()) %>%
@@ -918,9 +710,6 @@ print("Mean FRI Anc - FLC Der:")
 mean(genos[genos$FRIFLC == "Anc-Der", "bolting"])
 print("Mean FRI Der - FLC Der:")
 mean(genos[genos$FRIFLC == "Der-Der", "bolting"])
-
-
-
 
 
 ```
@@ -988,43 +777,11 @@ modelcry2 = lm(bolting ~ FRIFLCCRY, data = na.omit(genos))
 summary(glht(modelcry2, linfct = mcp(FRIFLCCRY = 'Tukey')))
 
 
-
-
 ```
 
 
 *CRY2 Der alone in a ancestral FRI and FLC background has no effect. In a FLC Der background, CRY2 Der reduces bolting time, independently of FRI. In a FLC Anc background, CRY2 has no effect. *
 
-
-## ATX2
-
-
-```{r, echo=FALSE, warning=FALSE, message=FALSE}
-ggplot(atx, aes(x = ATX, y = bolting)) + geom_boxplot(outlier.colour = NA) + geom_jitter() +
-  theme_bw() + xlab("Genotype ATX2") + ylab("Days to bolting") +
-  stat_compare_means(comparisons = list(c("Anc", "Der")))
-
-print("Mean ATX2 Anc:")
-mean(genos[genos$ATX == "Anc", "bolting"])
-print("Mean ATX2 Der:")
-mean(genos[genos$ATX == "Der", "bolting"])
-
-
-ggplot(genos, aes(x = FRIFLCATX, y = bolting)) + geom_boxplot(outlier.colour = NA) + geom_jitter() +
-  theme_bw() + xlab("Genotype FRI-FLC-ATX2") + ylab("Days to bolting") +
-  stat_compare_means(comparisons = list(c("Anc-Anc-Anc", "Anc-Anc-Der"), c("Anc-Der-Anc", "Anc-Der-Der"), c("Der-Anc-Anc", "Der-Anc-Der"), c("Der-Der-Anc", "Der-Der-Der")))
-
-
-print("Mean FRI Anc - FLC Der - ATX2 Anc:")
-mean(genos[genos$FRIFLCATX == "Anc-Der-Anc", "bolting"])
-print("Mean FRI Anc - FLC Der - ATX2 Der:")
-mean(genos[genos$FRIFLCATX == "Anc-Der-Der", "bolting"])
-print("Mean FRI Der - FLC Der - ATX2 Anc:")
-mean(genos[genos$FRIFLCATX == "Der-Der-Anc", "bolting"])
-print("Mean FRI Der - FLC Der - ATX2 Der:")
-mean(genos[genos$FRIFLCATX == "Der-Der-Der", "bolting"])
-
-```
 
 
 ## PEN3
@@ -1048,28 +805,6 @@ print("Mean PEN3 Der:")
 mean(pen[pen$PEN3 == "Der", "bolting"])
 
 pen %>% group_by(PEN3) %>%
-  summarise(n = n()) %>%
-  mutate(freq = n / sum(n))
-
-
-```
-
-
-## GI
-
-
-```{r, echo=FALSE, warning=FALSE, message=FALSE}
-
-ggplot(gi, aes(x = GI, y = bolting)) + geom_boxplot(outlier.colour = NA) + geom_jitter() +
-  theme_bw() + xlab("Genotype GI") + ylab("Days to bolting") +
-  stat_compare_means(comparisons = list(c("Anc", "Der")))
-
-print("Mean GI Anc:")
-mean(gi[gi$GI == "Anc", "bolting"])
-print("Mean GI Der:")
-mean(gi[gi$GI == "Der", "bolting"])
-
-gi %>% group_by(GI) %>%
   summarise(n = n()) %>%
   mutate(freq = n / sum(n))
 
@@ -1169,7 +904,6 @@ Run GEMMA in terminal. Example:
 
 ## Bolting
 
-!!!! Whenever a covariate is added downstream, the genotyping for that candidate comes from the imputed segment information, from the MAGIC software -- same date used above for Anc-Der comparisons. This could be the reasin why adding a covarite does not work so well in some cases. 
 
 ```{r, echo=FALSE, warning=FALSE}
 bolt_map = read.table("output/DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses_boltingBLUEs.assoc.txt", header = T)
@@ -1179,10 +913,7 @@ man_bolt_plot = ggplot(bolt_map, aes(x = ps, y = -log10(p_lrt))) + geom_point() 
   xlab("Chromosome position") +
   geom_hline(yintercept = -log10(0.05/nrow(bolt_map)), linetype = 2)
   
-bolt_map[-log10(bolt_map$p_lrt) > -log10(0.05/nrow(bolt_map)), ]
-#bolt_map[bolt_map$ps == 18954301, ] ## NERD1
 
-## FRI, FLC and something on chr3????
 ```
 
 *Three peaks: chr5, chr4 and chr3. The two on chr5 and chr4 probably correspond respectively to FLC and FRI. No a priori candidate for peak on chr3. PVE = 0.795316*
@@ -1190,66 +921,6 @@ bolt_map[-log10(bolt_map$p_lrt) > -log10(0.05/nrow(bolt_map)), ]
 
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE, eval=FALSE}
-
-### Bolting with FLC as a covariate
-
-bolt_flc = read.table("output/DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses_bolting_FLCcov.assoc.txt", header = T)
-
-ggplot(bolt_flc, aes(x = ps, y = -log10(p_lrt))) + geom_point() +
-  facet_grid(.~ chr, scales = "free_x") + theme_bw() + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
-  xlab("Chromosome position") +
-  geom_hline(yintercept = -log10(0.05/nrow(bolt_flc)), linetype = 2)
-  
-bolt_flc[-log10(bolt_flc$p_lrt) > -log10(0.05/nrow(bolt_flc)), ]
-
-*With FLC in as a covariate, the peak on chr5 disappears (sort of; there is still another one at the same region but less significant). FRI (probably) becomes more significant. PVE = 0.55009*
-
-```
-
-
-
-
-
-```{r, echo=FALSE, warning=FALSE, message=FALSE, eval=FALSE}
-
-### Bolting with FRI as a covariate
-
-
-bolt_fri = read.table("output/DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses_bolting_FRIcov.assoc.txt", header = T)
-
-ggplot(bolt_fri, aes(x = ps, y = -log10(p_lrt))) + geom_point() +
-  facet_grid(.~ chr, scales = "free_x") + theme_bw() + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
-  xlab("Chromosome position") +
-  geom_hline(yintercept = -log10(0.05/nrow(bolt_fri)), linetype = 2)
-  
-bolt_fri[-log10(bolt_fri$p_lrt) > -log10(0.05/nrow(bolt_fri)), ]
-
-*With FRI as a covariate, the plot changes only slightly. ??? PVE = 0.784375*
-
-
-```
-
-
-
-```{r, echo=FALSE, warning=FALSE, message=FALSE, eval=FALSE}
-
-### Bolting with FLC and FRI as a covariate
-
-
-bolt_flcfri = read.table("output/DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses_bolting_FLCFRIcov.assoc.txt", header = T)
-
-ggplot(bolt_flcfri, aes(x = ps, y = -log10(p_lrt))) + geom_point() +
-  facet_grid(.~ chr, scales = "free_x") + theme_bw() + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
-  xlab("Chromosome position") +
-  geom_hline(yintercept = -log10(0.05/nrow(bolt_flcfri)), linetype = 2)
-  
-bolt_flcfri[-log10(bolt_flcfri$p_lrt) > -log10(0.05/nrow(bolt_flcfri)), ]
-
-
-*Adding both FLC and FRI as covariates produces the same result as adding FLC alone. PVE = 0.507802*
-
-
-```
 
 
 
@@ -1275,23 +946,6 @@ nir_map[-log10(nir_map$p_lrt) > -log10(0.05/nrow(nir_map)), ]
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE, eval=FALSE}
 
-### NIR with IRT1 as a covariate
-
-
-nir_cov = read.table("output/DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses_NIR_14.65_IRT1cov.assoc.txt", header = T)
-
-ggplot(nir_cov, aes(x = ps, y = -log10(p_lrt))) + geom_point() +
-  facet_grid(.~ chr, scales = "free_x") + theme_bw() + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
-  xlab("Chromosome position") +
-  geom_hline(yintercept = -log10(0.05/nrow(nir_cov)), linetype = 2)
-  
-nir_cov[-log10(nir_cov$p_lrt) > -log10(0.05/nrow(nir_cov)), ]
-
-*Adding IRT1 only slightly changed the results ???? PVE = 0.468511*
-
-
-```
-
 
 
 ## PAM
@@ -1315,22 +969,6 @@ pam_map[order(pam_map$p_lrt),]
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE, eval=FALSE}
 
-### PAM with IRT1 as a covariate
-
-
-pam_cov = read.table("output/DH_SNPs_Final.cleanInd.parentalSitesOnly.noHet_15Perct.noBadCrosses_PAM_14.65_IRT1cov.assoc.txt", header = T)
-
-ggplot(pam_cov, aes(x = ps, y = -log10(p_lrt))) + geom_point() +
-  facet_grid(.~ chr, scales = "free_x") + theme_bw() + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
-  xlab("Chromosome position") +
-  geom_hline(yintercept = -log10(0.05/nrow(pam_cov)), linetype = 2)
-  
-pam_cov[-log10(pam_cov$p_lrt) > -log10(0.05/nrow(pam_cov)), ]
-
-*Adding IRT1 only slightly changed the results ???? PVE = 0.702254*
-
-
-```
 
 
 
